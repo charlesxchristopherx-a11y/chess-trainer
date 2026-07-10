@@ -401,23 +401,23 @@ function fenToState(fen) {
 }
 
 /* ---------- SVG piece set ---------- */
-function PieceSVG({ code, size = "86%" }) {
+function PieceSVG({ code, size = "94%" }) {
   const white = code[0] === "w";
   const fill = white ? "url(#ctgw)" : "url(#ctgb)";
-  const stroke = white ? "#3C3A36" : "#1f1d1a";
-  const detail = white ? "#3C3A36" : "#E8E6E1";
-  const sw = 1.5;
+  const stroke = white ? "#2E2C29" : "#000000";
+  const detail = white ? "#2E2C29" : "#E8E6E1";
+  const sw = 1.7;
   const common = { fill, stroke, strokeWidth: sw, strokeLinecap: "round", strokeLinejoin: "round" };
   const line = { fill: "none", stroke: detail, strokeWidth: sw, strokeLinecap: "round", strokeLinejoin: "round" };
   const t = code[1];
   return (
-    <svg viewBox="0 0 45 45" style={{ width: size, height: size, filter: "drop-shadow(0 2px 2px rgba(0,0,0,.35))" }}>
+    <svg viewBox="0 0 45 45" style={{ width: size, height: size, filter: "drop-shadow(0 3px 3px rgba(0,0,0,.45))" }}>
       <defs>
         <linearGradient id="ctgw" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#ffffff" /><stop offset="1" stopColor="#e3e1dc" />
+          <stop offset="0" stopColor="#ffffff" /><stop offset="0.45" stopColor="#f2f0eb" /><stop offset="1" stopColor="#d8d5cd" />
         </linearGradient>
         <linearGradient id="ctgb" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#57534e" /><stop offset="1" stopColor="#332f2b" />
+          <stop offset="0" stopColor="#6b6660" /><stop offset="0.45" stopColor="#48443f" /><stop offset="1" stopColor="#242220" />
         </linearGradient>
       </defs>
       {t === "P" && (
@@ -472,27 +472,28 @@ function actx() {
   if (ACTX.state === "suspended") ACTX.resume();
   return ACTX;
 }
-/* The click of a hand slapping the button on a tournament chess clock:
-   a hard plastic transient (bandpassed noise) + a faint case resonance. */
-function clockClick(gain = 0.55, when = 0, freq = 2300) {
+/* A solid piece-on-board thud: a low sine "body" sweep plus a soft
+   lowpass-filtered noise burst for felt/wood contact texture — closer to
+   chess.com's move sound than a bright clock-click transient. */
+function pieceThud(gain = 0.6, when = 0, pitch = 1.0) {
   const c = actx(), t = c.currentTime + when;
-  const len = Math.floor(c.sampleRate * 0.014);
+  const len = Math.floor(c.sampleRate * 0.035);
   const buf = c.createBuffer(1, len, c.sampleRate);
   const d = buf.getChannelData(0);
-  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.5);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 1.8);
   const n = c.createBufferSource(); n.buffer = buf;
-  const bp = c.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = freq; bp.Q.value = 1.1;
-  const g = c.createGain();
-  g.gain.setValueAtTime(gain, t);
-  g.gain.exponentialRampToValueAtTime(0.001, t + 0.055);
-  n.connect(bp).connect(g).connect(c.destination); n.start(t);
-  const o = c.createOscillator(); o.type = "triangle";
-  o.frequency.setValueAtTime(freq * 0.32, t);
-  o.frequency.exponentialRampToValueAtTime(freq * 0.2, t + 0.04);
+  const lp = c.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 1200 * pitch; lp.Q.value = 0.7;
+  const ng = c.createGain();
+  ng.gain.setValueAtTime(gain * 0.5, t);
+  ng.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+  n.connect(lp).connect(ng).connect(c.destination); n.start(t);
+  const o = c.createOscillator(); o.type = "sine";
+  o.frequency.setValueAtTime(190 * pitch, t);
+  o.frequency.exponentialRampToValueAtTime(85 * pitch, t + 0.09);
   const og = c.createGain();
-  og.gain.setValueAtTime(gain * 0.22, t);
-  og.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
-  o.connect(og).connect(c.destination); o.start(t); o.stop(t + 0.06);
+  og.gain.setValueAtTime(gain, t);
+  og.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+  o.connect(og).connect(c.destination); o.start(t); o.stop(t + 0.14);
 }
 function tone(freq, dur, gain, when = 0) {
   const c = actx(), t = c.currentTime + when;
@@ -505,10 +506,10 @@ function tone(freq, dur, gain, when = 0) {
 function playFX(kind, enabled) {
   if (!enabled) return;
   try {
-    if (kind === "move") clockClick(0.55);
-    else if (kind === "capture") { clockClick(0.6, 0, 1500); clockClick(0.5, 0.05, 2500); }
-    else if (kind === "castle") { clockClick(0.5); clockClick(0.5, 0.11); }
-    else if (kind === "check") { clockClick(0.55); tone(880, 0.16, 0.22, 0.03); }
+    if (kind === "move") pieceThud(0.6);
+    else if (kind === "capture") { pieceThud(0.7, 0, 0.85); pieceThud(0.55, 0.045, 1.15); }
+    else if (kind === "castle") { pieceThud(0.55); pieceThud(0.5, 0.11, 1.05); }
+    else if (kind === "check") { pieceThud(0.6); tone(660, 0.14, 0.16, 0.03); }
     else if (kind === "win") { [440, 554, 659, 880].forEach((f, i) => tone(f, 0.18, 0.24, i * 0.13)); }
     else if (kind === "lose") { [330, 262, 196].forEach((f, i) => tone(f, 0.22, 0.24, i * 0.16)); }
     if (navigator.vibrate) navigator.vibrate(12);
@@ -777,6 +778,10 @@ const CSS = `
   .ct-back { background:none; border:none; color:#b9b7b4; font-size:24px; padding:0 4px; cursor:pointer; line-height:1; }
   .ct-tgl { background:#3a3733; border:1px solid #4a463f; border-radius:9px; color:#ECEBE9; font-size:15px; padding:6px 8px; cursor:pointer; }
   .ct-tgl.off { opacity:.4; }
+  .ct-settingsrow { display:flex; gap:8px; flex-wrap:wrap; margin:2px 0 14px; }
+  .ct-settingsrow .ct-tgl { padding:9px 12px; font-size:13px; font-weight:600; }
+  .ct-puzzletop { display:flex; gap:8px; justify-content:flex-end; margin-bottom:8px; }
+  .ct-tgl.small { padding:6px 10px; font-size:14px; }
   .ct-body { flex:1; padding:12px; max-width:560px; width:100%; margin:0 auto; box-sizing:border-box; }
   .ct-card { background:#3a3733; border-radius:14px; padding:15px; margin-bottom:11px; cursor:pointer; border:1px solid #47443f; }
   .ct-card:active { background:#454138; }
@@ -801,7 +806,7 @@ const CSS = `
   .ct-coord.onlight { color:var(--dk); } .ct-coord.ondark { color:var(--lt); }
   .ct-pw { width:100%; height:100%; display:flex; align-items:center; justify-content:center; }
   .ct-pw.dragging { opacity:.28; }
-  .ct-ghost { position:fixed; width:12vw; height:12vw; max-width:74px; max-height:74px; min-width:44px; min-height:44px;
+  .ct-ghost { position:fixed; width:13vw; height:13vw; max-width:84px; max-height:84px; min-width:48px; min-height:48px;
     transform:translate(-50%,-50%); pointer-events:none; z-index:9999; filter:drop-shadow(0 8px 12px rgba(0,0,0,.55)); }
   .ct-pop { animation:ctpop .18s ease-out; }
   @keyframes ctpop { 0%{transform:scale(.7)} 70%{transform:scale(1.08)} 100%{transform:scale(1)} }
@@ -813,6 +818,18 @@ const CSS = `
   .ct-progress { height:9px; background:#22201d; border-radius:6px; margin-top:12px; overflow:hidden; }
   .ct-progress > div { height:100%; background:#e8871e; border-radius:6px; transition:width .25s; }
   .ct-moves { margin-top:8px; font-size:13px; color:#cfccc6; line-height:1.7; word-spacing:2px; min-height:18px; }
+  .ct-body.ct-compact { padding:8px 8px 12px; }
+  .ct-body.ct-compact .ct-bubblewrap { margin-bottom:6px; }
+  .ct-body.ct-compact .ct-avatar { width:34px; height:34px; font-size:18px; }
+  .ct-body.ct-compact .ct-bubble { padding:7px 10px; font-size:12.5px; border-radius:12px; border-top-left-radius:3px; }
+  .ct-body.ct-compact .ct-toprow { font-size:11.5px; margin-bottom:4px; }
+  .ct-body.ct-compact .ct-moves { font-size:11px; margin-top:6px; max-height:40px; overflow-y:auto; }
+  .ct-body.ct-compact .ct-controls { margin-top:8px; gap:7px; }
+  .ct-body.ct-compact .ct-btn { padding:9px 12px; font-size:13px; }
+  .ct-body.ct-compact .ct-elochip { padding:8px; margin-bottom:6px; }
+  .ct-body.ct-compact .ct-elochip .num { font-size:24px; }
+  .ct-body.ct-compact .ct-puzzlebar { margin-top:6px; }
+  .ct-body.ct-compact .ct-progress { margin-top:6px; }
   .ct-lesson p { font-size:14.5px; line-height:1.6; color:#dedcd7; margin:0 0 12px; }
   .ct-modal { position:fixed; inset:0; background:rgba(0,0,0,.6); display:flex; align-items:flex-end; justify-content:center; z-index:20; }
   .ct-sheet { background:#33312d; width:100%; max-width:560px; border-radius:18px 18px 0 0; padding:18px; box-sizing:border-box; max-height:82vh; overflow:auto; }
@@ -995,6 +1012,32 @@ function Coach({ text }) {
     <div className="ct-bubblewrap">
       <div className="ct-avatar">🧔</div>
       <div className="ct-bubble">{text}</div>
+    </div>
+  );
+}
+
+/* Board theme / sound / voice controls, surfaced on game-setup screens now
+   that the persistent header hides them once play begins (more room for
+   the board, chess.com-style). */
+function SettingsRow() {
+  const { theme, sound, voice, updateSettings } = useContext(Settings);
+  const T = THEMES[theme] || THEMES.green;
+  const cycleTheme = () => {
+    const next = THEME_ORDER[(THEME_ORDER.indexOf(theme) + 1) % THEME_ORDER.length];
+    updateSettings({ theme: next, sound, voice });
+    playFX("move", sound);
+  };
+  return (
+    <div className="ct-settingsrow">
+      <button className="ct-tgl" onClick={cycleTheme}>🎨 {T.label}</button>
+      <button className={"ct-tgl" + (sound ? "" : " off")}
+        onClick={() => { const s = !sound; updateSettings({ theme, sound: s, voice }); if (s) playFX("move", true); }}>
+        {sound ? "🔊 Sound on" : "🔇 Sound off"}
+      </button>
+      <button className={"ct-tgl" + (voice ? "" : " off")}
+        onClick={() => { const v = !voice; updateSettings({ theme, sound, voice: v }); speak(v ? "Voice coach on." : "", v); if (!v && window.speechSynthesis) window.speechSynthesis.cancel(); }}>
+        {voice ? "🗣 Voice on" : "🗣 Voice off"}
+      </button>
     </div>
   );
 }
@@ -1472,6 +1515,7 @@ function FreePlay({ profile, updateProfile, ecoRows }) {
   const [review, setReview] = useState(false);
   const [ask, setAsk] = useState(false);
   const [thinking, setThinking] = useState(false);
+  const [flipOverride, setFlipOverride] = useState(false);
   const scoredRef = useRef(false);
   const timer = useRef(null);
 
@@ -1548,6 +1592,7 @@ function FreePlay({ profile, updateProfile, ecoRows }) {
           <div className="lbl">YOUR ELO RATING • {profile.games} games • {profile.wins} wins</div>
         </div>
         <Coach text="Pick an opponent and a color. Win and your rating climbs; lose and it dips — just like real rated chess. Every game gets a full move-by-move review afterward." />
+        <SettingsRow />
         {LEVELS.map((l) => (
           <div key={l.id} className="ct-card" onClick={() => setLevel(l)} style={level.id === l.id ? { borderColor: "#e8ab24" } : {}}>
             <span className="ct-tag">~{l.elo} Elo</span>
@@ -1580,11 +1625,12 @@ function FreePlay({ profile, updateProfile, ecoRows }) {
         <span>{over ? "Game over" : state.turn === userColor ? "Your move" : "Engine thinking…"}</span>
       </div>
       <CapturedTray board={state.board} color={userColor === "w" ? "b" : "w"} />
-      <Board board={state.board} flipped={userColor === "b"} onTap={handleTap} selected={selected} targets={targets} lastMove={lastMove} checkSq={checkSq} />
+      <Board board={state.board} flipped={(userColor === "b") !== flipOverride} onTap={handleTap} selected={selected} targets={targets} lastMove={lastMove} checkSq={checkSq} />
       <EvalBar state={state} />
       <CapturedTray board={state.board} color={userColor} />
       <div className="ct-moves">{moveList || "Game start"}</div>
       <div className="ct-controls">
+        <button className="ct-btn" onClick={() => setFlipOverride((f) => !f)}>⇅ Flip</button>
         {!over && <button className="ct-btn" onClick={resign}>🏳 Resign</button>}
         {over && history.length > 1 && <button className="ct-btn primary" onClick={() => setReview(true)}>📊 Review game</button>}
         {over && <button className="ct-btn" onClick={() => setSetup(true)}>New game</button>}
@@ -1642,6 +1688,8 @@ function PuzzleMode({ profile, updateProfile }) {
   const [msg, setMsg] = useState(() => flavorFor(puzzle.theme));
   const [seconds, setSeconds] = useState(0);
   const [sessionSolved, setSessionSolved] = useState(0);
+  const [showSettings, setShowSettings] = useState(false);
+  const [puzzleFlip, setPuzzleFlip] = useState(false);
   const advanceTimer = useRef(null);
 
   useEffect(() => {
@@ -1747,8 +1795,13 @@ function PuzzleMode({ profile, updateProfile }) {
 
   return (
     <>
+      <div className="ct-puzzletop">
+        <button className="ct-tgl small" onClick={() => setShowSettings((s) => !s)}>⚙</button>
+        <button className="ct-tgl small" onClick={() => setPuzzleFlip((f) => !f)}>⇅</button>
+      </div>
+      {showSettings && <SettingsRow />}
       <Coach text={`${userSide === "w" ? "White" : "Black"} to move. ${msg}`} />
-      <Board board={state.board} flipped={userSide === "b"} onTap={handleTap}
+      <Board board={state.board} flipped={(userSide === "b") !== puzzleFlip} onTap={handleTap}
         selected={selected} targets={targets} lastMove={lastMove} checkSq={checkSq} />
       <div className="ct-puzzlebar">
         <div className="ct-puzzlestat"><div className="num">{ratingRef.current}</div><div className="lbl">🔥 {profile.puzzleStreak || 0}</div></div>
@@ -1767,21 +1820,162 @@ function PuzzleMode({ profile, updateProfile }) {
   );
 }
 
+/* ---------- Opening Recall (spaced-repetition-style quiz) ----------
+   Weighted-random picks openings you're weakest on (or haven't tried),
+   plays the OTHER side automatically, and asks you to recall your side's
+   moves from memory. Tracks per-opening mastery in the profile. */
+function QuizMode({ profile, updateProfile }) {
+  const { sound, voice } = useContext(Settings);
+  const mastery = profile.quizMastery || {};
+
+  const pickOpening = (excludeId) => {
+    const pool = OPENINGS.filter((o) => o.id !== excludeId && o.line && o.line.length >= 4);
+    const weighted = pool.map((o) => {
+      const m = mastery[o.id];
+      const score = !m || !m.attempts ? 0 : m.correct / m.attempts;
+      return { o, w: (1 - score) + 0.15 };
+    });
+    const total = weighted.reduce((s, x) => s + x.w, 0);
+    let r = Math.random() * total;
+    for (const x of weighted) { r -= x.w; if (r <= 0) return x.o; }
+    return weighted[weighted.length - 1].o;
+  };
+
+  const [opening, setOpening] = useState(() => pickOpening(null));
+  const [state, setState] = useState(startState);
+  const [ply, setPly] = useState(0);
+  const [selected, setSelected] = useState(null);
+  const [targets, setTargets] = useState([]);
+  const [lastMove, setLastMove] = useState(null);
+  const [status, setStatus] = useState("quizzing"); // quizzing | done
+  const [msg, setMsg] = useState("Get ready…");
+  const [sessionCount, setSessionCount] = useState(0);
+  const [showSettings, setShowSettings] = useState(false);
+  const wrongRef = useRef(0);
+
+  const flipped = opening.side === "b";
+  const checkSq = inCheck(state) ? kingIdx(state.board, state.turn) : null;
+
+  const recordResult = (o, passedClean) => {
+    const m = { ...mastery };
+    const prev = m[o.id] || { correct: 0, attempts: 0 };
+    m[o.id] = { correct: prev.correct + (passedClean ? 1 : 0), attempts: prev.attempts + 1, lastSeen: Date.now() };
+    updateProfile({ ...profile, quizMastery: m, quizCount: (profile.quizCount || 0) + (passedClean ? 1 : 0) });
+  };
+
+  const advance = (o, st, nextPly) => {
+    setState(st); setPly(nextPly);
+    if (nextPly >= o.line.length) {
+      setStatus("done");
+      const passed = wrongRef.current === 0;
+      setMsg(passed
+        ? `Perfect! You recalled the full ${o.name} without a slip. 🎉`
+        : `Line complete — you got there. A couple of slips, worth another look.`);
+      speak(passed ? "Perfect recall!" : "Line complete.", voice);
+      recordResult(o, passed);
+      setSessionCount((n) => n + 1);
+      return;
+    }
+    const nextMv = o.line[nextPly];
+    const isUserMove = (nextPly % 2 === 0) === (o.side === "w");
+    if (!isUserMove) {
+      setTimeout(() => {
+        const res = makeSAN(st, nextMv.from, nextMv.to);
+        moveSound(res, gameStatus(res.state), sound);
+        setLastMove({ from: nextMv.from, to: nextMv.to });
+        setMsg(`${nextMv.c} Your move — recall the book continuation.`);
+        advance(o, res.state, nextPly + 1);
+      }, 550);
+    } else {
+      setMsg(`Move ${Math.floor(nextPly / 2) + 1}${nextPly % 2 === 0 ? "." : "..."} — what's next in the ${o.name}?`);
+    }
+  };
+
+  useEffect(() => { advance(opening, startState(), 0); }, []); // eslint-disable-line
+
+  const nextLine = () => {
+    const o = pickOpening(opening.id);
+    wrongRef.current = 0;
+    setOpening(o); setSelected(null); setTargets([]); setLastMove(null); setStatus("quizzing");
+    advance(o, startState(), 0);
+  };
+
+  const handleTap = (i) => {
+    if (status !== "quizzing") return;
+    const isUserMove = (ply % 2 === 0) === (opening.side === "w");
+    if (!isUserMove) return;
+    const p = state.board[i];
+    if (selected != null && targets.includes(i)) {
+      const expected = opening.line[ply];
+      if (selected === expected.from && i === expected.to) {
+        const res = makeSAN(state, selected, i);
+        moveSound(res, gameStatus(res.state), sound);
+        setLastMove({ from: selected, to: i });
+        setSelected(null); setTargets([]);
+        advance(opening, res.state, ply + 1);
+      } else {
+        wrongRef.current += 1;
+        setMsg("Not the book move here — take another look.");
+        playFX("lose", sound);
+        setSelected(null); setTargets([]);
+      }
+      return;
+    }
+    if (p && p[0] === state.turn) { setSelected(i); setTargets(legalMoves(state, i)); }
+    else { setSelected(null); setTargets([]); }
+  };
+
+  const giveUp = () => {
+    const expected = opening.line[ply];
+    const res = makeSAN(state, expected.from, expected.to);
+    moveSound(res, gameStatus(res.state), sound);
+    setLastMove({ from: expected.from, to: expected.to });
+    wrongRef.current += 1;
+    advance(opening, res.state, ply + 1);
+  };
+
+  const m = mastery[opening.id];
+  const masteryPct = m && m.attempts ? Math.round((m.correct / m.attempts) * 100) : 0;
+
+  return (
+    <>
+      <div className="ct-puzzletop">
+        <button className="ct-tgl small" onClick={() => setShowSettings((s) => !s)}>⚙</button>
+      </div>
+      {showSettings && <SettingsRow />}
+      <Coach text={msg} />
+      <Board board={state.board} flipped={flipped} onTap={handleTap}
+        selected={selected} targets={targets} lastMove={lastMove} checkSq={checkSq} />
+      <div className="ct-toprow">
+        <span>{opening.name} · {opening.side === "w" ? "White" : "Black"}</span>
+        <span>Mastery {masteryPct}%</span>
+      </div>
+      <div className="ct-controls">
+        <button className="ct-btn" onClick={giveUp} disabled={status !== "quizzing"}>💡 Show move</button>
+        <button className="ct-btn primary" onClick={nextLine} disabled={status === "quizzing"}>Next line ›</button>
+      </div>
+      <p style={{ textAlign: "center", color: "#8a8783", fontSize: 12, marginTop: 6 }}>
+        {sessionCount} lines completed this session · {profile.quizCount || 0} clean recalls all-time
+      </p>
+    </>
+  );
+}
+
 /* ---------- App shell ---------- */
 export default function ChessTrainer() {
   const [screen, setScreen] = useState({ name: "home" });
   const [ask, setAsk] = useState(null);
   const [settings, setSettings] = useState({ sound: true, voice: false, theme: "green" });
-  const [profile, setProfile] = useState({ elo: 800, games: 0, wins: 0, streak: 0, lastDay: null, puzzleRating: 1200, puzzlesSolved: 0, puzzleStreak: 0, puzzleBest: 0 });
+  const [profile, setProfile] = useState({ elo: 800, games: 0, wins: 0, streak: 0, lastDay: null, puzzleRating: 1200, puzzlesSolved: 0, puzzleStreak: 0, puzzleBest: 0, quizMastery: {}, quizCount: 0 });
   const [ecoRows, setEcoRows] = useState(() => parsePacked(ECO_EMBED));
   const [ecoFull, setEcoFull] = useState(false);
 
   useEffect(() => {
     (async () => {
       const s = await loadStore("ct-settings", { sound: true, voice: false, theme: "green" });
-      const p = await loadStore("ct-profile", { elo: 800, games: 0, wins: 0, streak: 0, lastDay: null, puzzleRating: 1200, puzzlesSolved: 0, puzzleStreak: 0, puzzleBest: 0 });
+      const p = await loadStore("ct-profile", { elo: 800, games: 0, wins: 0, streak: 0, lastDay: null, puzzleRating: 1200, puzzlesSolved: 0, puzzleStreak: 0, puzzleBest: 0, quizMastery: {}, quizCount: 0 });
       setSettings({ theme: "green", ...s });
-      setProfile({ streak: 0, lastDay: null, puzzleRating: 1200, puzzlesSolved: 0, puzzleStreak: 0, puzzleBest: 0, ...p });
+      setProfile({ streak: 0, lastDay: null, puzzleRating: 1200, puzzlesSolved: 0, puzzleStreak: 0, puzzleBest: 0, quizMastery: {}, quizCount: 0, ...p });
       const full = await loadFullEco();
       if (full) { setEcoRows(full); setEcoFull(true); }
     })();
@@ -1796,7 +1990,7 @@ export default function ChessTrainer() {
     const streak = profile.lastDay === yest ? (profile.streak || 0) + 1 : 1;
     updateProfile({ ...profile, streak, lastDay: today });
   };
-  const TRAINING = new Set(["learn", "play", "free", "lesson", "ecoview", "puzzle"]);
+  const TRAINING = new Set(["learn", "play", "free", "lesson", "ecoview", "puzzle", "quiz"]);
   const go = (s) => { if (TRAINING.has(s.name)) touchStreak(); setScreen(s); };
 
   const title =
@@ -1807,6 +2001,7 @@ export default function ChessTrainer() {
     screen.name === "ecoview" ? screen.row[0] + " · " + screen.row[1] :
     screen.name === "free" ? "Free Play (Rated)" :
     screen.name === "puzzle" ? "Puzzles" :
+    screen.name === "quiz" ? "Opening Recall" :
     screen.name === "fundamentals" ? "Fundamentals" :
     screen.name === "strategy" ? "Strategy" :
     screen.name === "lesson" ? screen.lesson.title : "Chess Trainer";
@@ -1824,25 +2019,30 @@ export default function ChessTrainer() {
     updateSettings({ ...settings, theme: next });
     playFX("move", settings.sound);
   };
+  const compactHeader = screen.name === "free" || screen.name === "puzzle" || screen.name === "quiz";
 
   return (
-    <Settings.Provider value={settings}>
+    <Settings.Provider value={{ ...settings, updateSettings }}>
       <div className="ct-root" style={{ "--lt": T.lt, "--dk": T.dk, "--hlL": T.hlL, "--hlD": T.hlD }}>
         <style>{CSS}</style>
         <div className="ct-head">
           {screen.name !== "home" && <button className="ct-back" onClick={() => setScreen(backTarget())}>‹</button>}
           <h1>{title}</h1>
-          <button className="ct-tgl" title={"Board theme: " + T.label} onClick={cycleTheme}>🎨</button>
-          <button className={"ct-tgl" + (settings.sound ? "" : " off")} title="Clock-click sounds"
-            onClick={() => { const s = { ...settings, sound: !settings.sound }; updateSettings(s); if (s.sound) playFX("move", true); }}>
-            {settings.sound ? "🔊" : "🔇"}
-          </button>
-          <button className={"ct-tgl" + (settings.voice ? "" : " off")} title="Coach voice"
-            onClick={() => { const s = { ...settings, voice: !settings.voice }; updateSettings(s); speak(s.voice ? "Voice coach on. Let's train!" : "", s.voice); if (!s.voice && window.speechSynthesis) window.speechSynthesis.cancel(); }}>
-            🗣
-          </button>
+          {!compactHeader && (
+            <>
+              <button className="ct-tgl" title={"Board theme: " + T.label} onClick={cycleTheme}>🎨</button>
+              <button className={"ct-tgl" + (settings.sound ? "" : " off")} title="Move sounds"
+                onClick={() => { const s = { ...settings, sound: !settings.sound }; updateSettings(s); if (s.sound) playFX("move", true); }}>
+                {settings.sound ? "🔊" : "🔇"}
+              </button>
+              <button className={"ct-tgl" + (settings.voice ? "" : " off")} title="Coach voice"
+                onClick={() => { const s = { ...settings, voice: !settings.voice }; updateSettings(s); speak(s.voice ? "Voice coach on. Let's train!" : "", s.voice); if (!s.voice && window.speechSynthesis) window.speechSynthesis.cancel(); }}>
+                🗣
+              </button>
+            </>
+          )}
         </div>
-        <div className="ct-body">
+        <div className={"ct-body" + (compactHeader ? " ct-compact" : "")}>
 
           {screen.name === "home" && (
             <>
@@ -1856,6 +2056,11 @@ export default function ChessTrainer() {
                 <span className="ct-tag">Rated • Puzzle {profile.puzzleRating || 1200}</span>
                 <h3>🧩 Puzzles</h3>
                 <p>413 hand-picked tactics from real games — forks, pins, skewers, mates, and more. Solve, build a streak, climb the puzzle rating.</p>
+              </div>
+              <div className="ct-card" onClick={() => go({ name: "quiz" })}>
+                <span className="ct-tag">{profile.quizCount || 0} clean recalls</span>
+                <h3>🧠 Opening recall</h3>
+                <p>The coach plays the other side; you recall your repertoire from memory, move by move. Weaker lines come up more often.</p>
               </div>
               <div className="ct-card" onClick={() => go({ name: "explorer" })}>
                 <span className="ct-tag">{ecoRows.length.toLocaleString()} openings{ecoFull ? " • full database" : ""}</span>
@@ -1919,6 +2124,7 @@ export default function ChessTrainer() {
           {screen.name === "play" && <PlayMode key={screen.opening.id} opening={screen.opening} />}
           {screen.name === "free" && <FreePlay profile={profile} updateProfile={updateProfile} ecoRows={ecoRows} />}
           {screen.name === "puzzle" && <PuzzleMode profile={profile} updateProfile={updateProfile} />}
+          {screen.name === "quiz" && <QuizMode profile={profile} updateProfile={updateProfile} />}
 
           {screen.name === "fundamentals" && (
             <>
