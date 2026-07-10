@@ -268,7 +268,11 @@ function evaluate(state) {
   }
   return state.turn === "w" ? s : -s;
 }
-function qsearch(state, alpha, beta, qdepth) {
+function nowMs() { return (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now(); }
+const TIME_UP = Symbol("time_up");
+let NODE_COUNT = 0;
+function qsearch(state, alpha, beta, qdepth, deadline) {
+  if ((++NODE_COUNT & 511) === 0 && nowMs() > deadline) throw TIME_UP;
   const standPat = evaluate(state);
   if (standPat >= beta) return beta;
   if (alpha < standPat) alpha = standPat;
@@ -277,42 +281,66 @@ function qsearch(state, alpha, beta, qdepth) {
   caps.sort((a, b) => (VAL[state.board[b.to][1]] || 0) - (VAL[state.board[a.to][1]] || 0));
   for (const m of caps) {
     const { state: ns } = applyMove(state, m.from, m.to);
-    const v = -qsearch(ns, -beta, -alpha, qdepth - 1);
+    const v = -qsearch(ns, -beta, -alpha, qdepth - 1, deadline);
     if (v >= beta) return beta;
     if (v > alpha) alpha = v;
   }
   return alpha;
 }
-let ENGINE_QS = false; // toggled per-search by rootSearch based on the level's `qs` flag
-function negamax(state, depth, alpha, beta) {
+let ENGINE_QS = false; // toggled per-search by rootSearchTimed based on the level's `qs` flag
+function negamax(state, depth, alpha, beta, deadline) {
+  if ((++NODE_COUNT & 511) === 0 && nowMs() > deadline) throw TIME_UP;
   const moves = allLegalMoves(state);
   if (!moves.length) return inCheck(state) ? -99999 - depth : 0;
-  if (depth <= 0) return ENGINE_QS ? qsearch(state, alpha, beta, 4) : evaluate(state);
+  if (depth <= 0) return ENGINE_QS ? qsearch(state, alpha, beta, 3, deadline) : evaluate(state);
   moves.sort((a, b) =>
     (state.board[b.to] ? VAL[state.board[b.to][1]] : 0) - (state.board[a.to] ? VAL[state.board[a.to][1]] : 0));
   let best = -Infinity;
   for (const m of moves) {
     const { state: ns } = applyMove(state, m.from, m.to);
-    const v = -negamax(ns, depth - 1, -beta, -alpha);
+    const v = -negamax(ns, depth - 1, -beta, -alpha, deadline);
     if (v > best) best = v;
     if (v > alpha) alpha = v;
     if (alpha >= beta) break;
   }
   return best;
 }
-function rootSearch(state, depth, qs = false) {
+/* Iterative deepening with a hard wall-clock budget: searches depth 1, 2, 3…
+   up to maxDepth, keeping the best-scored move list from the last FULLY
+   completed depth. If a deeper pass runs past the budget it's abandoned
+   mid-way and the previous depth's result is kept — this is what actually
+   prevents the engine from ever freezing the tab, regardless of position
+   complexity or device speed. Also reorders moves by the previous depth's
+   scores before each new pass, which makes alpha-beta pruning far more
+   effective (best move searched first). */
+function rootSearchTimed(state, maxDepth, qs, budgetMs = 2200) {
+  const deadline = nowMs() + budgetMs;
+  let moves = allLegalMoves(state);
+  let best = moves.map((m) => ({ ...m, score: 0 }));
+  if (!moves.length) return best;
   ENGINE_QS = !!qs;
-  const moves = allLegalMoves(state);
-  const scored = moves.map((m) => {
-    const { state: ns } = applyMove(state, m.from, m.to);
-    return { ...m, score: -negamax(ns, depth - 1, -Infinity, Infinity) };
-  });
-  scored.sort((a, b) => b.score - a.score);
+  for (let d = 1; d <= maxDepth; d++) {
+    if (nowMs() > deadline) break;
+    NODE_COUNT = 0;
+    try {
+      const scored = moves.map((m) => {
+        const { state: ns } = applyMove(state, m.from, m.to);
+        return { ...m, score: -negamax(ns, d - 1, -Infinity, Infinity, deadline) };
+      });
+      scored.sort((a, b) => b.score - a.score);
+      best = scored;
+      moves = scored.map(({ score, ...m }) => m); // reorder for next iteration's move ordering
+    } catch (e) {
+      if (e === TIME_UP) break;
+      ENGINE_QS = false;
+      throw e;
+    }
+  }
   ENGINE_QS = false;
-  return scored;
+  return best;
 }
 function enginePick(state, depth, margin, qs = false) {
-  const scored = rootSearch(state, depth, qs);
+  const scored = rootSearchTimed(state, depth, qs);
   if (!scored.length) return null;
   const top = scored[0].score;
   const pool = scored.filter((m) => top - m.score <= margin);
@@ -472,28 +500,29 @@ function actx() {
   if (ACTX.state === "suspended") ACTX.resume();
   return ACTX;
 }
-/* A solid piece-on-board thud: a low sine "body" sweep plus a soft
-   lowpass-filtered noise burst for felt/wood contact texture — closer to
-   chess.com's move sound than a bright clock-click transient. */
+/* A short, dry piece-on-board knock: a tight bandpassed noise transient
+   for the "click" of contact, plus a brief deep sine body for weight —
+   real chess-piece sounds are under 100ms and dry (no reverb/tail), not
+   a bright clock-click or a soft, sustained thud. */
 function pieceThud(gain = 0.6, when = 0, pitch = 1.0) {
   const c = actx(), t = c.currentTime + when;
-  const len = Math.floor(c.sampleRate * 0.035);
+  const len = Math.floor(c.sampleRate * 0.02);
   const buf = c.createBuffer(1, len, c.sampleRate);
   const d = buf.getChannelData(0);
-  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 1.8);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3.2);
   const n = c.createBufferSource(); n.buffer = buf;
-  const lp = c.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 1200 * pitch; lp.Q.value = 0.7;
+  const bp = c.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 1100 * pitch; bp.Q.value = 0.9;
   const ng = c.createGain();
-  ng.gain.setValueAtTime(gain * 0.5, t);
-  ng.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
-  n.connect(lp).connect(ng).connect(c.destination); n.start(t);
+  ng.gain.setValueAtTime(gain * 0.65, t);
+  ng.gain.exponentialRampToValueAtTime(0.001, t + 0.03);
+  n.connect(bp).connect(ng).connect(c.destination); n.start(t);
   const o = c.createOscillator(); o.type = "sine";
-  o.frequency.setValueAtTime(190 * pitch, t);
-  o.frequency.exponentialRampToValueAtTime(85 * pitch, t + 0.09);
+  o.frequency.setValueAtTime(165 * pitch, t);
+  o.frequency.exponentialRampToValueAtTime(78 * pitch, t + 0.05);
   const og = c.createGain();
-  og.gain.setValueAtTime(gain, t);
-  og.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
-  o.connect(og).connect(c.destination); o.start(t); o.stop(t + 0.14);
+  og.gain.setValueAtTime(gain * 0.85, t);
+  og.gain.exponentialRampToValueAtTime(0.001, t + 0.075);
+  o.connect(og).connect(c.destination); o.start(t); o.stop(t + 0.09);
 }
 function tone(freq, dur, gain, when = 0) {
   const c = actx(), t = c.currentTime + when;
@@ -507,8 +536,8 @@ function playFX(kind, enabled) {
   if (!enabled) return;
   try {
     if (kind === "move") pieceThud(0.6);
-    else if (kind === "capture") { pieceThud(0.7, 0, 0.85); pieceThud(0.55, 0.045, 1.15); }
-    else if (kind === "castle") { pieceThud(0.55); pieceThud(0.5, 0.11, 1.05); }
+    else if (kind === "capture") { pieceThud(0.7, 0, 0.85); pieceThud(0.55, 0.035, 1.15); }
+    else if (kind === "castle") { pieceThud(0.55); pieceThud(0.5, 0.09, 1.05); }
     else if (kind === "check") { pieceThud(0.6); tone(660, 0.14, 0.16, 0.03); }
     else if (kind === "win") { [440, 554, 659, 880].forEach((f, i) => tone(f, 0.18, 0.24, i * 0.13)); }
     else if (kind === "lose") { [330, 262, 196].forEach((f, i) => tone(f, 0.22, 0.24, i * 0.16)); }
@@ -1281,7 +1310,7 @@ function ReviewMode({ history, userColor, result, onExit }) {
         const h = history[i];
         if (h.mover !== userColor) { out.push(null); setNotes(out.slice()); continue; }
         const before = i === 0 ? startState() : history[i - 1].state;
-        const scored = rootSearch(before, 2);
+        const scored = rootSearchTimed(before, 2, false);
         const best = scored[0];
         const played = scored.find((m) => m.from === h.from && m.to === h.to);
         const drop = best && played ? Math.max(0, best.score - played.score) : 0;
