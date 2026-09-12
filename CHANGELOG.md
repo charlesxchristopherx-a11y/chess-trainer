@@ -1,5 +1,19 @@
 # Changelog
 
+## v8
+- **Real "brains," no Anthropic key needed.** Added a Cloudflare Worker
+  (`src/worker.js`) that serves the static site *and* answers
+  `POST /api/coach` using **Workers AI** (`@cf/meta/llama-3.1-8b-instruct`)
+  — the AI coach now runs entirely on Cloudflare's own models, no
+  third-party API key of any kind.
+- The frontend's coach call is now self-adapting: tries the same-origin
+  `/api/coach` route first, falls back to Anthropic's proxied endpoint
+  only if that route doesn't exist — so the exact same `ChessTrainer.jsx`
+  works correctly both as a Cloudflare-hosted app and as a plain
+  Claude.ai artifact, with zero divergence between the two.
+- Added `wrangler.jsonc` (assets + AI bindings, validated with
+  `wrangler deploy --dry-run`) and a `deploy` script.
+
 ## v7
 - **Fixed:** engine could freeze the tab at Grandmaster level. Root cause
   was an unbounded depth-6 + quiescence search with no time limit and no

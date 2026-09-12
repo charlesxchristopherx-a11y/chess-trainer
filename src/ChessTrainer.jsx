@@ -1090,14 +1090,29 @@ function AskCoach({ context, onClose }) {
         `Current position (FEN): ${context.fen}\n` +
         `Moves so far: ${context.moves || "(start position)"}\n\n` +
         `Student's question: ${finalQ}`;
-      const r = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-6", max_tokens: 1000,
-          messages: [{ role: "user", content: prompt }],
-        }),
+      const body = JSON.stringify({
+        model: "claude-sonnet-4-6", max_tokens: 1000,
+        messages: [{ role: "user", content: prompt }],
       });
+      /* This file runs in two different homes: as a Claude.ai artifact
+         (where requests to api.anthropic.com are transparently proxied,
+         no key needed) and as this standalone build hosted on a
+         Cloudflare Worker (which exposes its own /api/coach route backed
+         by Workers AI — see src/worker.js). Try the self-hosted route
+         first since it's same-origin and fast; if it 404s (i.e. we're
+         running as a bare Claude artifact with no such route), fall back
+         to Anthropic's proxied endpoint. Either path returns the same
+         { content: [{ type: "text", text }] } shape, so nothing below
+         this needs to know which one answered. */
+      let r;
+      try {
+        r = await fetch("/api/coach", { method: "POST", headers: { "Content-Type": "application/json" }, body });
+        if (!r.ok) throw new Error("no worker route");
+      } catch (e) {
+        r = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST", headers: { "Content-Type": "application/json" }, body,
+        });
+      }
       const data = await r.json();
       const text = (data.content || []).filter((c) => c.type === "text").map((c) => c.text).join("\n").trim();
       if (text) { setAnswer(text); speak(text, voice); }
