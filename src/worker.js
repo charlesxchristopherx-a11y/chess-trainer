@@ -19,9 +19,12 @@ const SYSTEM_PROMPT =
   "You are a friendly, encouraging chess coach inside a training app. " +
   "Answer in 3-6 short sentences, plain English, no headers or markdown.";
 
-// Small, fast, free-tier-friendly instruct model. Swap for a different
-// Workers AI model name any time — see https://developers.cloudflare.com/workers-ai/models/
-const MODEL = "@cf/meta/llama-3.1-8b-instruct";
+// Verified live against this account's model catalog on 2026-09-15: a
+// plain (non-reasoning) instruct model. Reasoning models like gpt-oss can
+// burn their whole token budget on hidden chain-of-thought and never reach
+// a final answer — not worth the complexity for short coaching replies.
+// Swap any time — see https://developers.cloudflare.com/workers-ai/models/
+const MODEL = "@cf/meta/llama-3.2-3b-instruct";
 
 function withCORS(resp) {
   resp.headers.set("Access-Control-Allow-Origin", "*");
@@ -58,7 +61,7 @@ async function handleCoach(request, env) {
       ],
     });
 
-    const text = (result && result.response) ? result.response.trim() : "";
+    const text = extractText(result);
     const payload = {
       content: [{ type: "text", text: text || "Sorry, I couldn't come up with an answer just now — try again." }],
     };
@@ -66,11 +69,24 @@ async function handleCoach(request, env) {
       new Response(JSON.stringify(payload), { headers: { "Content-Type": "application/json" } })
     );
   } catch (e) {
+    console.error("coach endpoint error:", e && e.message, e && e.stack);
     const payload = { content: [{ type: "text", text: "The coach hit a snag — please try again." }] };
     return withCORS(
       new Response(JSON.stringify(payload), { status: 200, headers: { "Content-Type": "application/json" } })
     );
   }
+}
+
+/* Different Workers AI models shape their output differently — plain
+   instruct models expose a top-level `response` string, while some
+   (including reasoning models) only populate the OpenAI-style
+   `choices[0].message.content`. Check both rather than assuming one. */
+function extractText(result) {
+  if (!result) return "";
+  if (typeof result.response === "string" && result.response.trim()) return result.response.trim();
+  const choice = result.choices && result.choices[0] && result.choices[0].message;
+  if (choice && typeof choice.content === "string" && choice.content.trim()) return choice.content.trim();
+  return "";
 }
 
 export default {
