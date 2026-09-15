@@ -500,29 +500,40 @@ function actx() {
   if (ACTX.state === "suspended") ACTX.resume();
   return ACTX;
 }
-/* A short, dry piece-on-board knock: a tight bandpassed noise transient
-   for the "click" of contact, plus a brief deep sine body for weight —
-   real chess-piece sounds are under 100ms and dry (no reverb/tail), not
-   a bright clock-click or a soft, sustained thud. */
+/* A heavy, weighted piece-on-board "thock": two layered low sine sweeps
+   for real bass body/mass, plus a soft, low-pitched noise transient just
+   for attack definition — this is what a real felted, lead-weighted
+   tournament piece sounds like against a wood board, not a light click. */
 function pieceThud(gain = 0.6, when = 0, pitch = 1.0) {
   const c = actx(), t = c.currentTime + when;
-  const len = Math.floor(c.sampleRate * 0.02);
+  // Soft attack transient — much lower and quieter than a "click": just
+  // enough definition to mark the moment of contact.
+  const len = Math.floor(c.sampleRate * 0.018);
   const buf = c.createBuffer(1, len, c.sampleRate);
   const d = buf.getChannelData(0);
-  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3.2);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3.5);
   const n = c.createBufferSource(); n.buffer = buf;
-  const bp = c.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 1100 * pitch; bp.Q.value = 0.9;
+  const bp = c.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 550 * pitch; bp.Q.value = 0.8;
   const ng = c.createGain();
-  ng.gain.setValueAtTime(gain * 0.65, t);
-  ng.gain.exponentialRampToValueAtTime(0.001, t + 0.03);
+  ng.gain.setValueAtTime(gain * 0.32, t);
+  ng.gain.exponentialRampToValueAtTime(0.001, t + 0.025);
   n.connect(bp).connect(ng).connect(c.destination); n.start(t);
+  // Primary body thump — the main "thock" of a weighted piece landing.
   const o = c.createOscillator(); o.type = "sine";
-  o.frequency.setValueAtTime(165 * pitch, t);
-  o.frequency.exponentialRampToValueAtTime(78 * pitch, t + 0.05);
+  o.frequency.setValueAtTime(120 * pitch, t);
+  o.frequency.exponentialRampToValueAtTime(55 * pitch, t + 0.07);
   const og = c.createGain();
-  og.gain.setValueAtTime(gain * 0.85, t);
-  og.gain.exponentialRampToValueAtTime(0.001, t + 0.075);
-  o.connect(og).connect(c.destination); o.start(t); o.stop(t + 0.09);
+  og.gain.setValueAtTime(gain * 1.15, t);
+  og.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
+  o.connect(og).connect(c.destination); o.start(t); o.stop(t + 0.15);
+  // Sub-bass layer — the felt-bottomed mass/weight underneath the thock.
+  const sub = c.createOscillator(); sub.type = "sine";
+  sub.frequency.setValueAtTime(68 * pitch, t);
+  sub.frequency.exponentialRampToValueAtTime(36 * pitch, t + 0.1);
+  const subg = c.createGain();
+  subg.gain.setValueAtTime(gain * 0.8, t);
+  subg.gain.exponentialRampToValueAtTime(0.001, t + 0.17);
+  sub.connect(subg).connect(c.destination); sub.start(t); sub.stop(t + 0.19);
 }
 function tone(freq, dur, gain, when = 0) {
   const c = actx(), t = c.currentTime + when;
@@ -536,8 +547,8 @@ function playFX(kind, enabled) {
   if (!enabled) return;
   try {
     if (kind === "move") pieceThud(0.6);
-    else if (kind === "capture") { pieceThud(0.7, 0, 0.85); pieceThud(0.55, 0.035, 1.15); }
-    else if (kind === "castle") { pieceThud(0.55); pieceThud(0.5, 0.09, 1.05); }
+    else if (kind === "capture") { pieceThud(0.7, 0, 0.85); pieceThud(0.55, 0.07, 1.15); }
+    else if (kind === "castle") { pieceThud(0.55); pieceThud(0.5, 0.16, 1.05); }
     else if (kind === "check") { pieceThud(0.6); tone(660, 0.14, 0.16, 0.03); }
     else if (kind === "win") { [440, 554, 659, 880].forEach((f, i) => tone(f, 0.18, 0.24, i * 0.13)); }
     else if (kind === "lose") { [330, 262, 196].forEach((f, i) => tone(f, 0.22, 0.24, i * 0.16)); }
@@ -829,6 +840,18 @@ const CSS = `
   .ct-sq.light.hl, .ct-sq.light.sel { background-color:var(--hlL); }
   .ct-sq.dark.hl, .ct-sq.dark.sel { background-color:var(--hlD); }
   .ct-sq.chk { background:radial-gradient(circle, #ff5a52 20%, #d9453e 70%) !important; }
+  /* Heavy wood grain (walnut theme): one continuous grain texture behind the
+     whole board, with light/dark squares as semi-transparent tints over it —
+     this is what makes the grain read as flowing under the squares, like a
+     real inlaid wood board, rather than each square having its own patch. */
+  [data-theme="walnut"] .ct-board {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='800'%3E%3Cfilter id='wood'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.004 0.09' numOctaves='5' seed='7' result='n'/%3E%3CfeDisplacementMap in='n' in2='n' scale='40'/%3E%3CfeColorMatrix type='matrix' values='0.55 0 0 0 0.12 0.32 0 0 0 0.06 0.15 0 0 0 0.02 0 0 0 1 0'/%3E%3C/filter%3E%3Crect width='800' height='800' filter='url(%23wood)'/%3E%3C/svg%3E");
+    background-size: cover;
+  }
+  [data-theme="walnut"] .ct-sq.light { background-color: rgba(222,184,135,.55); background-image: none; }
+  [data-theme="walnut"] .ct-sq.dark { background-color: rgba(80,45,25,.62); background-image: none; }
+  [data-theme="walnut"] .ct-sq.light.hl, [data-theme="walnut"] .ct-sq.light.sel { background-color: var(--hlL); background-image: none; }
+  [data-theme="walnut"] .ct-sq.dark.hl, [data-theme="walnut"] .ct-sq.dark.sel { background-color: var(--hlD); background-image: none; }
   .ct-dot { width:26%; height:26%; border-radius:50%; background:rgba(20,20,20,.22); position:absolute; z-index:2; }
   .ct-ring { position:absolute; inset:0; border:4px solid rgba(20,20,20,.25); border-radius:50%; box-sizing:border-box; margin:3%; z-index:2; }
   .ct-coord { position:absolute; font-size:11px; font-weight:800; opacity:.95; z-index:1; letter-spacing:.2px; }
@@ -899,6 +922,7 @@ const CSS = `
   .ct-badge { display:inline-block; min-width:22px; text-align:center; border-radius:6px; font-size:11px; font-weight:900; padding:3px 6px; margin-right:8px; }
   .b-best { background:#1f7a3d; color:#fff; } .b-good { background:#3a7ca5; color:#fff; }
   .b-inac { background:#d9b02f; color:#231f10; } .b-mist { background:#e8871e; color:#fff; } .b-blun { background:#c93b3b; color:#fff; }
+  .ct-reviewsticky { position:sticky; top:0; z-index:5; background:#2c2a27; padding-bottom:10px; margin:0 -12px; padding-left:12px; padding-right:12px; }
   .ct-revrow { display:flex; align-items:flex-start; padding:9px 10px; border-radius:10px; margin-bottom:6px; background:#3a3733; cursor:pointer; border:1px solid #47443f; }
   .ct-revrow.on { border-color:#e8ab24; }
   .ct-revrow .san { font-weight:800; width:74px; flex:none; }
@@ -913,7 +937,7 @@ const CSS = `
 `;
 
 /* ---------- settings context ---------- */
-const Settings = createContext({ sound: true, voice: false, theme: "green" });
+const Settings = createContext({ sound: true, voice: false, theme: "walnut" });
 
 /* ---------- shared UI ---------- */
 /* ---------- live evaluation bar ---------- */
@@ -1374,20 +1398,22 @@ function ReviewMode({ history, userColor, result, onExit }) {
         analyzing ? "Analyzing your game move by move — grades will appear as I work…"
         : `Review complete. ${result} You played ${summary.Best} best moves, ${summary.Good} good, ${summary.Inaccuracy} inaccuracies, ${summary.Mistake} mistakes, and ${summary.Blunder} blunders. Tap any move to jump to it, or ask me for a deep review.`
       } />
-      <Board board={shownState.board} flipped={userColor === "b"} lastMove={lastMove}
-        checkSq={inCheck(shownState) ? kingIdx(shownState.board, shownState.turn) : null} />
-      <div className="ct-controls">
-        <button className="ct-btn" disabled={cursor === 0} onClick={() => setCursor(cursor - 1)}>‹ Back</button>
-        <button className="ct-btn" disabled={cursor === history.length} onClick={() => setCursor(cursor + 1)}>Forward ›</button>
-        <button className="ct-btn orange" onClick={() => setAsk(true)}>🧔 Deep review</button>
-        <button className="ct-btn primary" onClick={onExit}>Done</button>
-      </div>
-      {cursNote && (
-        <div style={{ marginTop: 10 }}>
-          <span className={"ct-badge " + cursNote.grade.cls}>{cursNote.grade.badge}</span>
-          <span style={{ fontSize: 13.5 }}>{cursNote.comment}</span>
+      <div className="ct-reviewsticky">
+        <Board board={shownState.board} flipped={userColor === "b"} lastMove={lastMove}
+          checkSq={inCheck(shownState) ? kingIdx(shownState.board, shownState.turn) : null} />
+        <div className="ct-controls">
+          <button className="ct-btn" disabled={cursor === 0} onClick={() => setCursor(cursor - 1)}>‹ Back</button>
+          <button className="ct-btn" disabled={cursor === history.length} onClick={() => setCursor(cursor + 1)}>Forward ›</button>
+          <button className="ct-btn orange" onClick={() => setAsk(true)}>🧔 Deep review</button>
+          <button className="ct-btn primary" onClick={onExit}>Done</button>
         </div>
-      )}
+        {cursNote && (
+          <div style={{ marginTop: 10 }}>
+            <span className={"ct-badge " + cursNote.grade.cls}>{cursNote.grade.badge}</span>
+            <span style={{ fontSize: 13.5 }}>{cursNote.comment}</span>
+          </div>
+        )}
+      </div>
       <div style={{ marginTop: 14 }}>
         {history.map((h, i) => {
           const n = notes[i];
@@ -1635,6 +1661,21 @@ function FreePlay({ profile, updateProfile, ecoRows }) {
     if (over || history.length < 2) { setSetup(true); return; }
     finish("You resigned.", 0);
   };
+  const takeback = () => {
+    if (over || !history.length) return;
+    clearTimeout(timer.current); setThinking(false);
+    setHistory((h) => {
+      if (!h.length) return h;
+      const lastMover = h[h.length - 1].mover; // color that made the most recent move
+      const pliesToUndo = lastMover === userColor ? 1 : 2; // if engine just moved, also undo the user's move before it
+      const newH = h.slice(0, Math.max(0, h.length - pliesToUndo));
+      const newState = newH.length ? newH[newH.length - 1].state : startState();
+      setState(newState);
+      setLastMove(newH.length ? { from: newH[newH.length - 1].from, to: newH[newH.length - 1].to } : null);
+      setSelected(null); setTargets([]);
+      return newH;
+    });
+  };
 
   if (setup) {
     return (
@@ -1683,6 +1724,7 @@ function FreePlay({ profile, updateProfile, ecoRows }) {
       <div className="ct-moves">{moveList || "Game start"}</div>
       <div className="ct-controls">
         <button className="ct-btn" onClick={() => setFlipOverride((f) => !f)}>⇅ Flip</button>
+        {!over && <button className="ct-btn" onClick={takeback} disabled={!history.length}>⏪ Takeback</button>}
         {!over && <button className="ct-btn" onClick={resign}>🏳 Resign</button>}
         {over && history.length > 1 && <button className="ct-btn primary" onClick={() => setReview(true)}>📊 Review game</button>}
         {over && <button className="ct-btn" onClick={() => setSetup(true)}>New game</button>}
@@ -2017,16 +2059,16 @@ function QuizMode({ profile, updateProfile }) {
 export default function ChessTrainer() {
   const [screen, setScreen] = useState({ name: "home" });
   const [ask, setAsk] = useState(null);
-  const [settings, setSettings] = useState({ sound: true, voice: false, theme: "green" });
+  const [settings, setSettings] = useState({ sound: true, voice: false, theme: "walnut" });
   const [profile, setProfile] = useState({ elo: 800, games: 0, wins: 0, streak: 0, lastDay: null, puzzleRating: 1200, puzzlesSolved: 0, puzzleStreak: 0, puzzleBest: 0, quizMastery: {}, quizCount: 0 });
   const [ecoRows, setEcoRows] = useState(() => parsePacked(ECO_EMBED));
   const [ecoFull, setEcoFull] = useState(false);
 
   useEffect(() => {
     (async () => {
-      const s = await loadStore("ct-settings", { sound: true, voice: false, theme: "green" });
+      const s = await loadStore("ct-settings", { sound: true, voice: false, theme: "walnut" });
       const p = await loadStore("ct-profile", { elo: 800, games: 0, wins: 0, streak: 0, lastDay: null, puzzleRating: 1200, puzzlesSolved: 0, puzzleStreak: 0, puzzleBest: 0, quizMastery: {}, quizCount: 0 });
-      setSettings({ theme: "green", ...s });
+      setSettings({ theme: "walnut", ...s });
       setProfile({ streak: 0, lastDay: null, puzzleRating: 1200, puzzlesSolved: 0, puzzleStreak: 0, puzzleBest: 0, quizMastery: {}, quizCount: 0, ...p });
       const full = await loadFullEco();
       if (full) { setEcoRows(full); setEcoFull(true); }
@@ -2075,7 +2117,7 @@ export default function ChessTrainer() {
 
   return (
     <Settings.Provider value={{ ...settings, updateSettings }}>
-      <div className="ct-root" style={{ "--lt": T.lt, "--dk": T.dk, "--hlL": T.hlL, "--hlD": T.hlD }}>
+      <div className="ct-root" data-theme={settings.theme} style={{ "--lt": T.lt, "--dk": T.dk, "--hlL": T.hlL, "--hlD": T.hlD }}>
         <style>{CSS}</style>
         <div className="ct-head">
           {screen.name !== "home" && <button className="ct-back" onClick={() => setScreen(backTarget())}>‹</button>}
